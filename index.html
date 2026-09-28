@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#07110e" />
+  <title>Aurum Chess</title>
+  <style>
+    :root {
+      --bg: #07110e;
+      --panel: rgba(10, 22, 18, 0.78);
+      --panel-solid: #101c18;
+      --gold: #d4b45a;
+      --gold-hi: #f3e2a8;
+      --ivory: #f3ead2;
+      --line: rgba(212, 180, 90, 0.38);
+      --danger: #c45c4a;
+      --muted: rgba(243, 234, 210, 0.55);
+      --shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--ivory);
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      user-select: none;
+      touch-action: none;
+      position: fixed;
+      inset: 0;
+    }
+    canvas#scene {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: #07110e;
+    }
+    .vignette {
+      pointer-events: none;
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse at 50% 40%, transparent 40%, rgba(0,0,0,0.45) 100%),
+        linear-gradient(180deg, rgba(0,0,0,0.28), transparent 18%, transparent 78%, rgba(0,0,0,0.4));
+      z-index: 1;
+    }
+    .overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 5;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: calc(24px + env(safe-area-inset-top)) 22px calc(24px + env(safe-area-inset-bottom));
+      background: radial-gradient(ellipse at 50% 28%, rgba(18, 40, 32, 0.28), rgba(4, 10, 8, 0.55));
+    }
+    .overlay.hidden { display: none; }
+    .brand { text-align: center; margin-bottom: 36px; animation: rise .7s ease both; }
+    .brand-mark {
+      font-size: 52px;
+      line-height: 1;
+      color: var(--gold-hi);
+      text-shadow: 0 8px 30px rgba(212,180,90,0.35);
+      filter: drop-shadow(0 2px 0 rgba(0,0,0,0.4));
+    }
+    .brand h1 {
+      margin: 8px 0 0;
+      font-family: Palatino, "Palatino Linotype", Georgia, serif;
+      font-weight: 500;
+      letter-spacing: 0.48em;
+      font-size: 28px;
+      padding-left: 0.48em;
+      color: var(--gold-hi);
+    }
+    .brand .tag {
+      margin: 6px 0 0;
+      letter-spacing: 0.42em;
+      font-size: 11px;
+      color: var(--gold);
+      padding-left: 0.42em;
+      opacity: 0.85;
+    }
+    .menu-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: min(360px, 100%);
+      animation: rise .7s ease .08s both;
+    }
+    .btn {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(232,212,150,0.14), rgba(212,180,90,0.05));
+      color: var(--gold-hi);
+      padding: 14px 18px;
+      border-radius: 12px;
+      font-family: Palatino, Georgia, serif;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      font-size: 13px;
+      cursor: pointer;
+      box-shadow: var(--shadow);
+      transition: transform .15s ease, background .15s ease, box-shadow .15s ease;
+    }
+    .btn:hover, .btn:focus {
+      background: linear-gradient(180deg, rgba(232,212,150,0.22), rgba(212,180,90,0.1));
+      box-shadow: 0 0 24px rgba(212,180,90,0.18);
+      outline: none;
+    }
+    .btn:active { transform: translateY(1px) scale(0.99); }
+    .btn.primary {
+      background: linear-gradient(180deg, #e8d07a, #b8943c);
+      color: #1a1408;
+      border-color: #f0e0a8;
+      font-weight: 600;
+    }
+    .btn.ghost {
+      background: transparent;
+      box-shadow: none;
+      color: var(--muted);
+      border-color: transparent;
+    }
+    .btn.danger {
+      border-color: rgba(196, 92, 74, 0.5);
+      color: #f0c0b4;
+    }
+    .btn.small {
+      padding: 8px 12px;
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      border-radius: 9px;
+      box-shadow: none;
+    }
+    .hint-foot {
+      margin-top: 28px;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      animation: rise .7s ease .16s both;
+    }
+    h2.panel-title {
+      font-family: Palatino, Georgia, serif;
+      font-weight: 500;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      font-size: 16px;
+      color: var(--gold-hi);
+      margin: 0 0 18px;
+      text-align: center;
+    }
+    .levels, .colors, .seats {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: min(380px, 100%);
+      margin-bottom: 14px;
+    }
+    .card {
+      text-align: left;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-radius: 14px;
+      padding: 14px 16px;
+      color: var(--ivory);
+      cursor: pointer;
+      box-shadow: var(--shadow);
+    }
+    .card.active {
+      border-color: var(--gold);
+      box-shadow: 0 0 0 1px var(--gold), var(--shadow);
+    }
+    .card .k {
+      font-family: Palatino, Georgia, serif;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--gold-hi);
+      font-size: 14px;
+    }
+    .card .d { color: var(--muted); font-size: 12px; margin-top: 4px; }
+    .stars { color: var(--gold); letter-spacing: 3px; margin-top: 6px; font-size: 12px; }
+    .row { display: flex; gap: 10px; width: min(380px, 100%); }
+    .row .btn { flex: 1; }
+    .seat {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel);
+      backdrop-filter: blur(16px);
+    }
+    .seat .who { font-size: 13px; color: var(--muted); }
+    .seat .nm { font-family: Palatino, Georgia, serif; color: var(--gold-hi); }
+    #hud {
+      position: absolute;
+      inset: 0;
+      z-index: 4;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: calc(10px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));
+    }
+    #hud.hidden { display: none; }
+    #hud button, #hud .hit { pointer-events: auto; }
+    .topbar {
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+      justify-content: space-between;
+    }
+    .pill {
+      background: var(--panel);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 8px 12px;
+      box-shadow: var(--shadow);
+      min-width: 0;
+    }
+    .player {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .player .nm {
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-family: Palatino, Georgia, serif;
+    }
+    .player .meta { font-size: 11px; color: var(--muted); }
+    .player.active { box-shadow: 0 0 0 1px var(--gold), 0 0 18px rgba(212,180,90,0.25); }
+    .captured { letter-spacing: 1px; font-size: 14px; min-height: 18px; color: var(--gold-hi); }
+    .status-pill {
+      flex: 1.15;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .status-pill .s {
+      font-family: Palatino, Georgia, serif;
+      color: var(--gold-hi);
+      font-size: 14px;
+      letter-spacing: 0.06em;
+    }
+    .status-pill .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .bottombar {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: center;
+    }
+    .tools {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .tools .btn { pointer-events: auto; }
+    .moves {
+      max-height: 0;
+      overflow: hidden;
+      width: min(520px, 100%);
+      background: var(--panel);
+      border: 1px solid transparent;
+      border-radius: 12px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+      padding: 0 12px;
+      transition: max-height .25s ease, padding .25s ease;
+      pointer-events: auto;
+    }
+    .moves.open {
+      max-height: 140px;
+      overflow: auto;
+      padding: 10px 12px;
+      border-color: var(--line);
+      touch-action: pan-y;
+    }
+    .modal {
+      position: absolute;
+      inset: 0;
+      z-index: 8;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(4, 8, 6, 0.55);
+      padding: 20px;
+    }
+    .modal.hidden { display: none; }
+    .modal-card {
+      width: min(420px, 100%);
+      background: var(--panel-solid);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 22px 20px;
+      text-align: center;
+      box-shadow: var(--shadow);
+    }
+    .modal-card h2 {
+      font-family: Palatino, Georgia, serif;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      font-size: 18px;
+      color: var(--gold-hi);
+      margin: 0 0 8px;
+    }
+    .modal-card p { color: var(--muted); margin: 0 0 16px; }
+    .promo-row { display: flex; gap: 10px; justify-content: center; }
+    .promo-row button {
+      width: 64px; height: 64px;
+      font-size: 32px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: rgba(232,212,150,0.08);
+      color: var(--ivory);
+      cursor: pointer;
+    }
+    .settings-grid {
+      display: grid;
+      gap: 10px;
+      text-align: left;
+      margin-bottom: 14px;
+    }
+    .settings-grid label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      font-size: 13px;
+      color: var(--ivory);
+    }
+    .settings-grid input, .settings-grid select {
+      accent-color: var(--gold);
+      background: #0c1814;
+      color: var(--ivory);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 4px 8px;
+    }
+    #loader {
+      position: absolute;
+      inset: 0;
+      z-index: 12;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+      gap: 16px;
+    }
+    #loader.hidden { display: none; }
+    .spin {
+      width: 42px; height: 42px;
+      border: 2px solid rgba(212,180,90,0.2);
+      border-top-color: var(--gold);
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(14px); }
+      to { opacity: 1; transform: none; }
+    }
+    .toast {
+      position: absolute;
+      left: 50%;
+      bottom: calc(86px + env(safe-area-inset-bottom));
+      transform: translateX(-50%);
+      z-index: 6;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      color: var(--gold-hi);
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-size: 12px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity .3s ease;
+      white-space: nowrap;
+    }
+    .toast.show { opacity: 1; }
+    #debug-panel {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 30;
+      width: min(420px, 92vw);
+      display: flex;
+      flex-direction: column;
+      background: rgba(6, 12, 10, 0.94);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-left: 1px solid var(--line);
+      box-shadow: -18px 0 50px rgba(0, 0, 0, 0.5);
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) 0;
+      transform: translateX(105%);
+      transition: transform .25s ease;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+    }
+    #debug-panel.open { transform: none; }
+    .dbg-head {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--line);
+    }
+    .dbg-title {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--gold-hi);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      font-size: 11px;
+    }
+    .dbg-btn, .dbg-filter {
+      background: #0c1814;
+      color: var(--ivory);
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 4px 8px;
+      font: inherit;
+      cursor: pointer;
+      flex: none;
+    }
+    .dbg-close { font-size: 14px; line-height: 1; padding: 3px 9px; }
+    .dbg-env {
+      padding: 6px 10px;
+      color: var(--muted);
+      border-bottom: 1px solid rgba(212, 180, 90, 0.15);
+      word-break: break-word;
+      user-select: text;
+      -webkit-user-select: text;
+    }
+    .dbg-list {
+      flex: 1;
+      overflow: auto;
+      padding: 4px 0;
+      touch-action: pan-x pan-y;
+      overscroll-behavior: contain;
+      user-select: text;
+      -webkit-user-select: text;
+    }
+    .dbg-row {
+      display: flex;
+      gap: 8px;
+      padding: 2px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+      color: var(--ivory);
+    }
+    .dbg-ts { color: var(--muted); flex: none; }
+    .dbg-msg { white-space: pre-wrap; word-break: break-word; min-width: 0; }
+    .dbg-debug .dbg-msg { color: #8fb5a6; }
+    .dbg-warn { background: rgba(212, 180, 90, 0.08); }
+    .dbg-warn .dbg-msg { color: #f0d488; }
+    .dbg-error { background: rgba(196, 92, 74, 0.12); }
+    .dbg-error .dbg-msg { color: #f5a898; }
+    @media (max-width: 520px) {
+      .brand h1 { font-size: 22px; }
+      .player .nm { font-size: 12px; }
+      .status-pill .s { font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+  <div class="vignette"></div>
+
+  <div id="loader">
+    <div class="spin"></div>
+    <div style="letter-spacing:.28em;color:var(--gold);font-family:Palatino,Georgia,serif;">SETTING THE BOARD</div>
+  </div>
+
+  <div id="menu" class="overlay hidden">
+    <div class="brand">
+      <div class="brand-mark">♞</div>
+      <h1>AURUM</h1>
+      <p class="tag">3D CHESS</p>
+    </div>
+    <div class="menu-actions">
+      <button type="button" class="btn primary" id="btn-ai">Play vs Computer</button>
+      <button type="button" class="btn" id="btn-chat">Play over Chat</button>
+      <button type="button" class="btn" id="btn-local">Pass &amp; Play</button>
+    </div>
+    <p class="hint-foot">Drag to orbit · Pinch or scroll to zoom</p>
+  </div>
+
+  <div id="ai-setup" class="overlay hidden">
+    <h2 class="panel-title">Choose your opponent</h2>
+    <div class="levels" id="levels">
+      <button type="button" class="card active" data-level="easy">
+        <div class="k">Apprentice</div>
+        <div class="d">Quick, fallible — ideal for learning.</div>
+        <div class="stars">★☆☆</div>
+      </button>
+      <button type="button" class="card" data-level="medium">
+        <div class="k">Tactician</div>
+        <div class="d">Solid club play with a short look-ahead.</div>
+        <div class="stars">★★☆</div>
+      </button>
+      <button type="button" class="card" data-level="hard">
+        <div class="k">Grandmaster</div>
+        <div class="d">Deep search, opening book, few mistakes.</div>
+        <div class="stars">★★★</div>
+      </button>
+    </div>
+    <div class="row">
+      <button type="button" class="btn primary" id="ai-white">Play White</button>
+      <button type="button" class="btn" id="ai-black">Play Black</button>
+    </div>
+    <button type="button" class="btn ghost" id="ai-back">Back</button>
+  </div>
+
+  <div id="lobby" class="overlay hidden">
+    <h2 class="panel-title">Chat match</h2>
+    <p style="color:var(--muted);text-align:center;max-width:360px;margin:0 0 16px;font-size:13px;">
+      Share this mini app in a chat. Two players sit down; everyone else may watch.
+    </p>
+    <div class="seats">
+      <div class="seat" id="seat-w">
+        <div>
+          <div class="who">White</div>
+          <div class="nm" id="seat-w-name">Empty seat</div>
+        </div>
+        <button type="button" class="btn small" id="sit-w">Sit</button>
+      </div>
+      <div class="seat" id="seat-b">
+        <div>
+          <div class="who">Black</div>
+          <div class="nm" id="seat-b-name">Empty seat</div>
+        </div>
+        <button type="button" class="btn small" id="sit-b">Sit</button>
+      </div>
+    </div>
+    <p id="lobby-status" style="color:var(--muted);font-size:13px;">Waiting for players…</p>
+    <button type="button" class="btn" id="lobby-watch">Watch the board</button>
+    <button type="button" class="btn ghost" id="lobby-back">Back</button>
+  </div>
+
+  <div id="hud" class="hidden">
+    <div class="topbar">
+      <div class="pill player" id="p-left">
+        <div class="nm" id="p-left-name">Black</div>
+        <div class="meta" id="p-left-meta">Black</div>
+        <div class="captured" id="p-left-cap"></div>
+      </div>
+      <div class="pill status-pill">
+        <div class="s" id="status">White to move</div>
+        <div class="sub" id="status-sub">Good luck</div>
+      </div>
+      <div class="pill player" id="p-right">
+        <div class="nm" id="p-right-name">White</div>
+        <div class="meta" id="p-right-meta">White</div>
+        <div class="captured" id="p-right-cap"></div>
+      </div>
+    </div>
+    <div class="bottombar">
+      <div class="moves" id="moves"></div>
+      <div class="tools">
+        <button type="button" class="btn small" id="btn-menu">Menu</button>
+        <button type="button" class="btn small" id="btn-moves">Moves</button>
+        <button type="button" class="btn small" id="btn-zoom-out">−</button>
+        <button type="button" class="btn small" id="btn-zoom-in">+</button>
+        <button type="button" class="btn small" id="btn-flip">Flip</button>
+        <button type="button" class="btn small" id="btn-cam">Camera</button>
+        <button type="button" class="btn small" id="btn-undo">Undo</button>
+        <button type="button" class="btn small" id="btn-settings">Settings</button>
+        <button type="button" class="btn small danger" id="btn-resign">Resign</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <div id="promo" class="modal hidden">
+    <div class="modal-card">
+      <h2>Promote</h2>
+      <p>Choose a piece</p>
+      <div class="promo-row" id="promo-row">
+        <button type="button" data-p="q">♕</button>
+        <button type="button" data-p="r">♖</button>
+        <button type="button" data-p="b">♗</button>
+        <button type="button" data-p="n">♘</button>
+      </div>
+      <button type="button" class="btn ghost" id="promo-cancel">Cancel</button>
+    </div>
+  </div>
+
+  <div id="over" class="modal hidden">
+    <div class="modal-card">
+      <h2 id="over-title">Checkmate</h2>
+      <p id="over-sub">White wins</p>
+      <div class="row">
+        <button type="button" class="btn primary" id="over-again">Play again</button>
+        <button type="button" class="btn" id="over-menu">Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="settings" class="modal hidden">
+    <div class="modal-card">
+      <h2>Settings</h2>
+      <div class="settings-grid">
+        <label>Sound <input type="checkbox" id="opt-sound" checked /></label>
+        <label>Legal hints <input type="checkbox" id="opt-hints" checked /></label>
+        <label>Coordinates <input type="checkbox" id="opt-coords" checked /></label>
+        <label>Auto-flip (pass &amp; play) <input type="checkbox" id="opt-autoflip" /></label>
+        <label>Quality
+          <select id="opt-quality">
+            <option value="auto">Auto</option>
+            <option value="high">High</option>
+            <option value="low">Low</option>
+          </select>
+        </label>
+      </div>
+      <button type="button" class="btn" id="settings-close">Close</button>
+    </div>
+  </div>
+
+  <div id="confirm" class="modal hidden">
+    <div class="modal-card">
+      <h2 id="confirm-title">Leave game?</h2>
+      <p id="confirm-sub">The current position will be lost.</p>
+      <div class="row">
+        <button type="button" class="btn danger" id="confirm-yes">Confirm</button>
+        <button type="button" class="btn" id="confirm-no">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="version.js"></script>
+  <script src="js/debuglog.js"></script>
+  <script src="webxdc.js"></script>
+  <script src="js/three.min.js"></script>
+  <script src="js/chess.min.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/board3d.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

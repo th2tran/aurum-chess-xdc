@@ -1,0 +1,20 @@
+{
+  "name": "aurum-chess-xdc",
+  "version": "0.0.2+8",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "start": "webxdc-dev",
+    "sync-version": "node -e \"const fs=require('fs');const v=require('./package.json').version.replace('+','.');fs.writeFileSync('version.js', 'window.APP_VERSION = ' + JSON.stringify(v) + ';\\\\n');\"",
+    "bump-build": "node -e \"const fs=require('fs');const rd=f=>JSON.parse(fs.readFileSync(f,'utf8'));const wr=(f,j)=>fs.writeFileSync(f,JSON.stringify(j,null,2)+'\\n');const p=rd('package.json');const m=/^(\\d+\\.\\d+\\.\\d+)(?:\\+(\\d+))?$/.exec(p.version);if(!m){console.error('Unsupported version: '+p.version);process.exit(1);}p.version=m[1]+'+'+((m[2]?+m[2]:0)+1);wr('package.json',p);if(fs.existsSync('package-lock.json')){const l=rd('package-lock.json');l.version=p.version;if(l.packages&&l.packages[''])l.packages[''].version=p.version;wr('package-lock.json',l);}console.log(p.version);\"",
+    "build": "npm run bump-build && npm run sync-version && npm run build:xdc",
+    "build:xdc": "npm run sync-version && mkdir -p dist && bestzip dist/aurum-chess-$(node -p \"require('./package.json').version.replace('+','.')\").xdc manifest.toml index.html version.js icon.png js/**"
+  },
+  "devDependencies": {
+    "@webxdc/webxdc-dev": "^0.21.0",
+    "bestzip": "^2.2.1"
+  }
+}
