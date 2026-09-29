@@ -114,10 +114,11 @@
     return {
       game: state.gameId,
       seats: { w: state.seats.w, b: state.seats.b },
-      moves: netChess.history({ verbose: true }).map(function (m) {
-        return { from: m.from, to: m.to, promo: m.promotion || null };
+      moves: netChess.history({ verbose: true }).map(function (m, i) {
+        return { from: m.from, to: m.to, promo: m.promotion || null, by: state.moveBy[i] || null };
       }),
-      resigned: state.resigned || null
+      resigned: state.resigned || null,
+      resignedBy: state.resignedBy || null
     };
   }
 
@@ -133,7 +134,7 @@
     ["w", "b"].forEach(function (c) {
       var seat = snap.seats && snap.seats[c];
       if (seat && seat.addr) {
-        handlePayload({ t: "sit", game: snap.game, color: c, addr: seat.addr, name: seat.name });
+        handlePayload({ t: "sit", game: snap.game, color: c, addr: seat.addr, name: seat.name, ts: seat.ts });
       }
     });
     var mine = netChess.history({ verbose: true });
@@ -141,15 +142,26 @@
     var n = Math.min(mine.length, theirs.length);
     for (var i = 0; i < n; i++) {
       if (mine[i].from !== theirs[i].from || mine[i].to !== theirs[i].to) {
-        console.warn("[rt] move history diverges at ply " + i + "; ignoring peer snapshot");
-        return false;
+        if (!moveAuthorValid(i, theirs[i].by)) {
+          console.warn("[rt] peer history diverges at ply " + i + " with an unauthorised move; keeping ours");
+          return true;
+        }
+        if (moveAuthorValid(i, state.moveBy[i])) {
+          console.warn("[rt] move history diverges at ply " + i + "; ignoring peer snapshot");
+          return false;
+        }
+        console.warn("[rt] local ply " + i + " was made by an unseated player; adopting peer history");
+        truncateNetHistory(i);
+        mine = netChess.history({ verbose: true });
+        break;
       }
     }
     for (i = mine.length; i < theirs.length; i++) {
-      handlePayload({ t: "move", game: snap.game, n: i, from: theirs[i].from, to: theirs[i].to, promo: theirs[i].promo });
+      handlePayload({ t: "move", game: snap.game, n: i, from: theirs[i].from, to: theirs[i].to, promo: theirs[i].promo, addr: theirs[i].by || undefined });
+      if (netChess.history().length !== i + 1) break;
     }
     if (snap.resigned && !state.resigned) {
-      handlePayload({ t: "resign", game: snap.game, color: snap.resigned });
+      handlePayload({ t: "resign", game: snap.game, color: snap.resigned, addr: snap.resignedBy || undefined });
     }
     var seatsBehind = ["w", "b"].some(function (c) {
       return state.seats[c] && !(snap.seats && snap.seats[c]);
@@ -239,7 +251,9 @@
     promo: null,
     appliedPly: 0,
     seenSerial: 0,
-    resigned: null
+    resigned: null,
+    resignedBy: null,
+    moveBy: [] // addr of the player who made each ply in netChess
   };
 
   var audioCtx = null;
@@ -497,6 +511,7 @@
     renderMoves();
     $("btn-undo").style.display = state.mode === "chat" ? "none" : "";
     $("btn-resign").style.display = isSeated() ? "" : "none";
+    $("over-again").style.display = state.mode === "chat" && !isSeated() ? "none" : "";
     paintHighlights();
   }
 
@@ -563,6 +578,7 @@
 
   function sendChatMove(move) {
     if (state.mode !== "chat" || !window.webxdc) return;
+    state.moveBy[chess.history().length - 1] = selfAddr();
     var opp = state.seats[move.color === "w" ? "b" : "w"];
     var notify = {};
     if (opp) notify[opp.addr] = selfName() + " played " + move.san;
@@ -819,7 +835,8 @@
       game: state.gameId,
       color: color,
       addr: selfAddr(),
-      name: selfName()
+      name: selfName(),
+      ts: Date.now()
     };
     handlePayload(payload);
     xdcSend({
@@ -849,9 +866,72 @@
     startGameBoard();
   }
 
+  function seatColorOf(addr) {
+    if (!addr) return null;
+    if (state.seats.w && state.seats.w.addr === addr) return "w";
+    if (state.seats.b && state.seats.b.addr === addr) return "b";
+    return null;
+  }
+
+  // Unknown authors (legacy data) are given the benefit of the doubt.
+  function moveAuthorValid(ply, addr) {
+    if (!addr) return true;
+    var seat = state.seats[ply % 2 === 0 ? "w" : "b"];
+    return !!seat && seat.addr === addr;
+  }
+
+  // Deterministic "first claim wins" so every peer settles on the same seat holder.
+  // Claims without a timestamp come from ordered webxdc history and are never displaced.
+  function claimWins(claim, holder) {
+    if (!holder) return true;
+    if (holder.addr === claim.addr) return false;
+    if (!claim.ts || !holder.ts) return false;
+    if (claim.ts !== holder.ts) return claim.ts < holder.ts;
+    return String(claim.addr) < String(holder.addr);
+  }
+
+  function truncateNetHistory(n) {
+    while (netChess.history().length > n) netChess.undo();
+    state.moveBy.length = Math.min(state.moveBy.length, n);
+    var h = netChess.history({ verbose: true });
+    state.lastMove = h.length ? { from: h[h.length - 1].from, to: h[h.length - 1].to } : null;
+    state.appliedPly = h.length;
+    state.gameOver = netChess.game_over() || !!state.resigned;
+    animQueue.length = 0;
+    if (playingChat()) {
+      deselect();
+      Board3D.syncFEN(netChess.fen());
+      if (!state.gameOver) $("over").classList.add("hidden");
+      updateHUD();
+    }
+  }
+
+  // Drop any moves (and resignation) made by someone who no longer holds that seat.
+  function pruneUnauthorised() {
+    if (state.resignedBy && seatColorOf(state.resignedBy) !== state.resigned) {
+      console.warn("[game] discarding resignation by unseated player " + state.resignedBy);
+      state.resigned = null;
+      state.resignedBy = null;
+      state.gameOver = netChess.game_over();
+      if (playingChat() && !state.gameOver) $("over").classList.add("hidden");
+    }
+    var len = netChess.history().length;
+    for (var i = 0; i < len; i++) {
+      if (!moveAuthorValid(i, state.moveBy[i])) {
+        console.warn("[game] rolling back to ply " + i + ": move by unseated player " + state.moveBy[i]);
+        truncateNetHistory(i);
+        return;
+      }
+    }
+  }
+
   function handlePayload(p) {
     if (!p || !p.t) return;
     console.debug("[xdc] recv" + (hydrating ? " (hydrating)" : ""), p);
+    if (p.t === "rematch" && p.addr && !seatColorOf(p.addr)) {
+      console.warn("[game] ignoring rematch from unseated player " + p.addr);
+      return;
+    }
     var newGame = !!(p.game && p.game > state.gameId);
     if (newGame) {
       state.gameId = p.game;
@@ -860,6 +940,8 @@
       state.appliedPly = 0;
       state.gameOver = false;
       state.resigned = null;
+      state.resignedBy = null;
+      state.moveBy = [];
       animQueue.length = 0;
       if (playingChat()) {
         Board3D.syncFEN(netChess.fen());
@@ -871,8 +953,19 @@
     if (p.game && p.game < state.gameId) return;
 
     if (p.t === "sit") {
-      if (!state.seats[p.color]) {
-        state.seats[p.color] = { addr: p.addr, name: p.name };
+      if (p.color !== "w" && p.color !== "b" || !p.addr) return;
+      var holder = state.seats[p.color];
+      var otherColor = p.color === "w" ? "b" : "w";
+      if (state.seats[otherColor] && state.seats[otherColor].addr === p.addr) return;
+      if (!claimWins(p, holder)) {
+        if (holder && holder.addr !== p.addr) console.debug("[game] seat " + p.color + " stays with " + holder.addr + "; rejected " + p.addr);
+        return;
+      }
+      state.seats[p.color] = { addr: p.addr, name: p.name, ts: p.ts || 0 };
+      if (holder) {
+        console.warn("[game] seat " + p.color + " reassigned from " + holder.addr + " to " + p.addr + " (earlier claim)");
+        if (holder.addr === selfAddr()) toast((p.name || "Another player") + " already took that seat");
+        pruneUnauthorised();
       }
       if (state.screen === "lobby") refreshLobby();
       if (!hydrating && state.seats.w && state.seats.b && state.screen === "lobby") {
@@ -882,12 +975,17 @@
 
     if (p.t === "move") {
       if (p.n !== netChess.history().length) return;
+      if (!moveAuthorValid(p.n, p.addr) || !state.seats[netChess.turn()]) {
+        console.warn("[game] ignoring move " + p.from + "-" + p.to + " from " + p.addr + ": not the " + netChess.turn() + " player");
+        return;
+      }
       var mv = netChess.move({
         from: p.from,
         to: p.to,
         promotion: p.promo || undefined
       });
       if (!mv) return;
+      state.moveBy[p.n] = p.addr || null;
       if (hydrating) {
         state.lastMove = { from: mv.from, to: mv.to };
         state.appliedPly = netChess.history().length;
@@ -902,7 +1000,14 @@
     if (p.t === "resign") {
       if (p.game && p.game !== state.gameId) return;
       if (p.color !== "w" && p.color !== "b") return;
+      var rs = state.seats[p.color];
+      if (!rs || (p.addr && rs.addr !== p.addr)) {
+        console.warn("[game] ignoring resignation for " + p.color + " from " + p.addr);
+        return;
+      }
+      if (state.resigned) return;
       state.resigned = p.color;
+      state.resignedBy = p.addr || rs.addr;
       if (hydrating) {
         state.gameOver = true;
         return;
@@ -953,6 +1058,7 @@
       else if (state.seats.b && state.seats.b.addr === selfAddr()) color = "b";
       else return;
       state.resigned = color;
+      state.resignedBy = selfAddr();
       xdcSend({
         payload: { t: "resign", game: state.gameId, color: color, addr: selfAddr() },
         info: selfName() + " resigned",
@@ -965,6 +1071,7 @@
 
   function rematch() {
     if (state.mode === "chat") {
+      if (!isSeated()) return;
       var payload = { t: "rematch", game: state.gameId + 1, addr: selfAddr() };
       handlePayload(payload);
       xdcSend({
